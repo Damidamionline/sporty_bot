@@ -10,6 +10,7 @@
         #startBtn { background-color: #28a745; color: white; }
         #stopBtn { background-color: #dc3545; color: white; }
         #toggleBetBtn { background-color: #007bff; color: white; }
+        #clearLogBtn { background-color: #ffc107; color: black; }
         .status { font-weight: bold; padding: 5px; border-radius: 4px; }
         .status-on { color: #28a745; }
         .status-off { color: #dc3545; }
@@ -23,6 +24,7 @@
         <h3>System Status</h3>
         <p>Bot Status: <span id="botStatus" class="status status-off">STOPPED</span></p>
         <p>Auto-Betting: <span id="betStatus" class="status status-off">DISABLED</span></p>
+        <p>Conditions Met Count: <span id="conditionsMet" class="status">0</span></p>
     </div>
 
     <div class="control-panel">
@@ -30,6 +32,7 @@
         <button id="startBtn">Start Bot</button>
         <button id="stopBtn">Stop Bot</button>
         <button id="toggleBetBtn">Enable Auto-Bet</button>
+        <button id="clearLogBtn">Clear Logs</button>
     </div>
     
     <h3>Live Log:</h3>
@@ -42,11 +45,14 @@
             const log = document.getElementById('log');
             const botStatus = document.getElementById('botStatus');
             const betStatus = document.getElementById('betStatus');
+            const conditionsMet = document.getElementById('conditionsMet');
             const startBtn = document.getElementById('startBtn');
             const stopBtn = document.getElementById('stopBtn');
             const toggleBetBtn = document.getElementById('toggleBetBtn');
+            const clearLogBtn = document.getElementById('clearLogBtn');
 
             function updateUI(state) {
+                // Update Bot Status
                 if (state.bot_running) {
                     botStatus.textContent = 'RUNNING';
                     botStatus.className = 'status status-on';
@@ -60,6 +66,8 @@
                     stopBtn.disabled = true;
                     toggleBetBtn.disabled = true;
                 }
+
+                // Update Bet Status
                 if (state.auto_bet_enabled) {
                     betStatus.textContent = 'ENABLED';
                     betStatus.className = 'status status-on';
@@ -69,24 +77,25 @@
                     betStatus.className = 'status status-off';
                     toggleBetBtn.textContent = 'Enable Auto-Bet';
                 }
+
+                // Update Conditions Met Count
+                conditionsMet.textContent = state.conditions_met_count || 0;
             }
 
-            socket.on('connect', () => {
-                log.innerHTML = 'Connected to server. Requesting history...\n';
-            });
+            socket.on('connect', () => { log.innerHTML = 'Connected to server.\n'; });
             
-            // --- !! NEW EVENT HANDLER FOR HISTORY !! ---
             socket.on('log_history', (msg) => {
-                log.innerHTML = ''; // Clear the log first
+                log.innerHTML = '';
                 log.innerHTML = msg.data.join('\n') + '\n';
                 log.scrollTop = log.scrollHeight;
             });
 
-            socket.on('update_state', (state) => {
-                updateUI(state);
-            });
+            socket.on('update_state', (state) => { updateUI(state); });
 
             socket.on('log_message', (msg) => {
+                if (msg.clear) {
+                    log.innerHTML = '';
+                }
                 log.innerHTML += msg.data + '\n';
                 log.scrollTop = log.scrollHeight;
             });
@@ -94,6 +103,11 @@
             startBtn.addEventListener('click', () => socket.emit('start_bot'));
             stopBtn.addEventListener('click', () => socket.emit('stop_bot'));
             toggleBetBtn.addEventListener('click', () => socket.emit('toggle_auto_bet'));
+            clearLogBtn.addEventListener('click', () => {
+                if (confirm('Are you sure you want to permanently delete the log file?')) {
+                    socket.emit('clear_logs');
+                }
+            });
         });
     </script>
 </body>

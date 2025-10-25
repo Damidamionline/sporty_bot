@@ -6,45 +6,47 @@ from bot_logic import run_bot_instance
 from collections import deque
 
 # --- ROBUST PATH SETUP ---
-# Get the absolute path of the directory where this script is located.
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 CACHE_DIR = os.path.join(BASE_DIR, 'my_browser_cache')
 LOG_FILE = os.path.join(BASE_DIR, 'bot_log.txt')
 if not os.path.exists(CACHE_DIR):
     os.makedirs(CACHE_DIR)
 
-# Explicitly tell Flask where to find the templates folder to avoid pathing issues.
+# --- CREATE THE FLASK APP and SOCKETIO OBJECTS ---
 app = Flask(__name__, template_folder=os.path.join(BASE_DIR, 'templates'))
 app.config['SECRET_KEY'] = 'a_very_secret_key'
-socketio = SocketIO(app, async_mode='eventlet')
+# --- !! CHANGE 1: REMOVED async_mode !! ---
+# We will let SocketIO choose the best mode, which will be compatible.
+socketio = SocketIO(app)
 
 # --- Central State Management ---
-APP_STATE = {'bot_running': False, 'auto_bet_enabled': False}
+APP_STATE = {'bot_running': False,
+             'auto_bet_enabled': False, 'conditions_met_count': 0}
 bot_thread = None
 stop_event = threading.Event()
 
+# --- ROUTES AND EVENT HANDLERS ---
+
 
 def broadcast_state():
-    """Sends the current state to all clients."""
     socketio.emit('update_state', APP_STATE)
-
-
-@socketio.on('connect')
-def handle_connect():
-    """When a new user connects, send them the current state and recent log history."""
-    print("Client connected. Sending initial state and log history.")
-    try:
-        with open(LOG_FILE, 'r') as f:
-            last_lines = deque(f, 200)  # Send the last 200 lines
-        socketio.emit('log_history', {'data': list(last_lines)})
-    except FileNotFoundError:
-        socketio.emit('log_message', {'data': 'Welcome! No log history yet.'})
-    broadcast_state()
 
 
 @app.route('/')
 def index():
     return render_template('index.html')
+
+
+@socketio.on('connect')
+def handle_connect():
+    print("Client connected. Sending initial state and log history.")
+    try:
+        with open(LOG_FILE, 'r') as f:
+            last_lines = deque(f, 200)
+        socketio.emit('log_history', {'data': list(last_lines)})
+    except FileNotFoundError:
+        socketio.emit('log_message', {'data': 'Welcome! No log history yet.'})
+    broadcast_state()
 
 
 @socketio.on('start_bot')
@@ -53,9 +55,9 @@ def handle_start_bot():
     if not APP_STATE['bot_running']:
         print("Received start command. Starting bot thread.")
         APP_STATE['bot_running'] = True
+        APP_STATE['conditions_met_count'] = 0
         broadcast_state()
         stop_event.clear()
-
         bot_thread = socketio.start_background_task(
             target=run_bot_instance,
             socketio=socketio,
@@ -69,9 +71,7 @@ def handle_start_bot():
 @socketio.on('stop_bot')
 def handle_stop_bot():
     if APP_STATE['bot_running']:
-        print("Received stop command. Signaling bot to stop.")
-        socketio.emit('log_message', {
-                      'data': '--- Sending stop signal to bot... ---'})
+        print("Received stop command.")
         stop_event.set()
 
 
@@ -79,12 +79,28 @@ def handle_stop_bot():
 def handle_toggle_auto_bet():
     if APP_STATE['bot_running']:
         APP_STATE['auto_bet_enabled'] = not APP_STATE['auto_bet_enabled']
-        status = "ENABLED" if APP_STATE['auto_bet_enabled'] else "DISABLED"
-        print(f"Auto-betting toggled to: {status}")
+        print(
+            f"Auto-betting toggled to: {'ENABLED' if APP_STATE['auto_bet_enabled'] else 'DISABLED'}")
         broadcast_state()
 
 
+@socketio.on('clear_logs')
+def handle_clear_logs():
+    print("Received clear logs command.")
+    socketio.emit('log_message', {
+                  'data': '--- Log history has been cleared. ---', 'clear': True})
+    if os.path.exists(LOG_FILE):
+        try:
+            open(LOG_FILE, 'w').close()
+        except Exception as e:
+            print(f"Error clearing log file: {e}")
+
+
+# --- FINALLY, RUN THE APP ---
 if __name__ == '__main__':
     print("Starting Flask-SocketIO server.")
     print("Open your browser and navigate to http://127.0.0.1:5000")
-    socketio.run(app, host='0.0.0.0', port=5000)
+    # --- !! CHANGE 2: USE THE DEFAULT SERVER !! ---
+    # We remove the host='0.0.0.0' for now, as Flask's development server is simpler.
+    # It will be accessible on your local machine at the printed address.
+    socketio.run(app, port=5000, allow_unsafe_werkzeug=True)

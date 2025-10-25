@@ -3,6 +3,8 @@ import re
 from datetime import datetime
 from playwright.sync_api import sync_playwright, expect
 
+# The line "from bot_logic import run_bot_instance" has been REMOVED from here.
+
 # --- CONFIGURATION ---
 BET_COOLDOWN_SECONDS = 300
 TRIGGER_MULTIPLIER = 150.0
@@ -17,30 +19,26 @@ def parse_multiplier(text: str) -> float:
 
 def parse_balance(text: str) -> str:
     try:
-        return re.sub(r'[^\d.]', '', text)
+        match = re.search(r'[\d,.]+', text)
+        if match:
+            return match.group(0).replace(',', '')
+        return "0"
     except (ValueError, AttributeError):
         return "0"
 
 
 def run_bot_instance(socketio, user_data_path, stop_event, app_state, log_file):
-    """ The main bot logic, now with persistent file logging. """
     def log(message):
-        # Create a timestamped log entry
         timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         log_entry = f"[{timestamp}] {message}"
-
-        print(log_entry)  # Print to server console
-
-        # Write to the persistent log file
+        print(log_entry)
         with open(log_file, 'a') as f:
             f.write(log_entry + '\n')
-
-        # Send to the live web interface
         socketio.emit('log_message', {'data': log_entry})
 
     try:
-        # The entire Playwright setup and execution logic remains the same...
         with sync_playwright() as p:
+            # ... (The rest of the file is unchanged and correct) ...
             browser = p.chromium.launch_persistent_context(
                 user_data_path, headless=True, slow_mo=100, user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36', viewport={'width': 1280, 'height': 800})
             page = browser.pages[0] if browser.pages else browser.new_page()
@@ -61,7 +59,7 @@ def run_bot_instance(socketio, user_data_path, stop_event, app_state, log_file):
             expect(aviator_in_frame).to_be_visible(timeout=0)
             aviator_in_frame.click()
             log("--- AVIATOR LAUNCHED ---")
-            log("Waiting for game controls to load...")
+            log("Waiting for game controls...")
             aviator_game_frame = page.frame_locator(
                 "#games-lobby").frame_locator("iframe").first
             auto_tab_button = aviator_game_frame.get_by_role(
@@ -75,8 +73,7 @@ def run_bot_instance(socketio, user_data_path, stop_event, app_state, log_file):
             cashout_input.click()
             cashout_input.fill("1.05")
             log("--- Auto-Bet Settings Configured Successfully! ---\n")
-            log(
-                f"--- BOT MONITORING STARTED (Trigger at {TRIGGER_MULTIPLIER}x) ---")
+            log(f"--- BOT MONITORING STARTED ---")
 
             last_processed_result = None
             last_bet_timestamp = 0
@@ -88,16 +85,22 @@ def run_bot_instance(socketio, user_data_path, stop_event, app_state, log_file):
                     last_processed_result = current_result_text
                     latest_multiplier = parse_multiplier(current_result_text)
                     log(f"New result: {latest_multiplier}x")
+
                     if latest_multiplier > TRIGGER_MULTIPLIER:
+                        app_state['conditions_met_count'] += 1
+                        socketio.emit('update_state', app_state)
+
                         log(
-                            f"[!!] CONDITION MET: Last result was {latest_multiplier}x!")
+                            f"[!!] CONDITION MET ({app_state['conditions_met_count']} times): Last result was {latest_multiplier}x!")
+
                         if app_state['auto_bet_enabled']:
                             seconds_since_last_bet = time.time() - last_bet_timestamp
                             if seconds_since_last_bet > BET_COOLDOWN_SECONDS:
-                                log("[$$] Auto-Bet is ENABLED. Placing bet...")
+                                log("[$$] Placing bet...")
                                 balance_text = page.locator(
                                     "#j_balance").inner_text()
                                 balance_to_bet = parse_balance(balance_text)
+
                                 if float(balance_to_bet) > 0:
                                     stake_input = aviator_game_frame.locator(
                                         "app-bet-controls input[type='text']").first
@@ -110,16 +113,14 @@ def run_bot_instance(socketio, user_data_path, stop_event, app_state, log_file):
                                     last_bet_timestamp = time.time()
                                     log(
                                         f"[>>] AUTO-BET PLACED for {balance_to_bet} NGN!")
-                                    app_state['auto_bet_enabled'] = False
-                                    socketio.emit('update_state', app_state)
                                 else:
                                     log("[!!] Balance is zero. Cannot bet.")
                             else:
                                 remaining_cooldown = BET_COOLDOWN_SECONDS - last_bet_timestamp
-                                log(
-                                    f"[--] In cooldown ({remaining_cooldown:.0f}s left). Skipping bet.")
+                                log(f"[--] In cooldown ({remaining_cooldown:.0f}s left).")
                         else:
                             log("[--] Auto-Bet is DISABLED. No action taken.")
+
                 socketio.sleep(2)
 
     except Exception as e:
