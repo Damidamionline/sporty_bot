@@ -1,0 +1,16 @@
+# Ignore the Python virtual environment folder
+venv/
+
+# Ignore the browser cache folder
+my_browser_cache/
+
+# Ignore the persistent log file
+bot_log.txt
+
+# Ignore Python's internal cache files
+__pycache__/
+*.pyc
+
+# Ignore IDE/editor-specific folders (optional but good practice)
+.vscode/
+.idea/

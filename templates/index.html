@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Aviator Bot Control</title>
+    <style>
+        body { font-family: monospace; background-color: #121212; color: #e0e0e0; padding: 20px; }
+        .control-panel, .status-panel { border: 1px solid #444; padding: 15px; margin-bottom: 20px; border-radius: 8px; }
+        button { font-size: 1.1em; padding: 10px 15px; margin: 5px; cursor: pointer; border-radius: 5px; border: none; }
+        button:disabled { cursor: not-allowed; opacity: 0.4; }
+        #startBtn { background-color: #28a745; color: white; }
+        #stopBtn { background-color: #dc3545; color: white; }
+        #toggleBetBtn { background-color: #007bff; color: white; }
+        .status { font-weight: bold; padding: 5px; border-radius: 4px; }
+        .status-on { color: #28a745; }
+        .status-off { color: #dc3545; }
+        #log { width: 100%; height: 500px; box-sizing: border-box; background-color: #000; color: #9f9; overflow-y: scroll; border: 1px solid #333; white-space: pre-wrap; }
+    </style>
+</head>
+<body>
+    <h1>Aviator Bot Control Panel</h1>
+
+    <div class="status-panel">
+        <h3>System Status</h3>
+        <p>Bot Status: <span id="botStatus" class="status status-off">STOPPED</span></p>
+        <p>Auto-Betting: <span id="betStatus" class="status status-off">DISABLED</span></p>
+    </div>
+
+    <div class="control-panel">
+        <h3>Controls</h3>
+        <button id="startBtn">Start Bot</button>
+        <button id="stopBtn">Stop Bot</button>
+        <button id="toggleBetBtn">Enable Auto-Bet</button>
+    </div>
+    
+    <h3>Live Log:</h3>
+    <pre id="log"></pre>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', (event) => {
+            const socket = io();
+            const log = document.getElementById('log');
+            const botStatus = document.getElementById('botStatus');
+            const betStatus = document.getElementById('betStatus');
+            const startBtn = document.getElementById('startBtn');
+            const stopBtn = document.getElementById('stopBtn');
+            const toggleBetBtn = document.getElementById('toggleBetBtn');
+
+            function updateUI(state) {
+                if (state.bot_running) {
+                    botStatus.textContent = 'RUNNING';
+                    botStatus.className = 'status status-on';
+                    startBtn.disabled = true;
+                    stopBtn.disabled = false;
+                    toggleBetBtn.disabled = false;
+                } else {
+                    botStatus.textContent = 'STOPPED';
+                    botStatus.className = 'status status-off';
+                    startBtn.disabled = false;
+                    stopBtn.disabled = true;
+                    toggleBetBtn.disabled = true;
+                }
+                if (state.auto_bet_enabled) {
+                    betStatus.textContent = 'ENABLED';
+                    betStatus.className = 'status status-on';
+                    toggleBetBtn.textContent = 'Disable Auto-Bet';
+                } else {
+                    betStatus.textContent = 'DISABLED';
+                    betStatus.className = 'status status-off';
+                    toggleBetBtn.textContent = 'Enable Auto-Bet';
+                }
+            }
+
+            socket.on('connect', () => {
+                log.innerHTML = 'Connected to server. Requesting history...\n';
+            });
+            
+            // --- !! NEW EVENT HANDLER FOR HISTORY !! ---
+            socket.on('log_history', (msg) => {
+                log.innerHTML = ''; // Clear the log first
+                log.innerHTML = msg.data.join('\n') + '\n';
+                log.scrollTop = log.scrollHeight;
+            });
+
+            socket.on('update_state', (state) => {
+                updateUI(state);
+            });
+
+            socket.on('log_message', (msg) => {
+                log.innerHTML += msg.data + '\n';
+                log.scrollTop = log.scrollHeight;
+            });
+
+            startBtn.addEventListener('click', () => socket.emit('start_bot'));
+            stopBtn.addEventListener('click', () => socket.emit('stop_bot'));
+            toggleBetBtn.addEventListener('click', () => socket.emit('toggle_auto_bet'));
+        });
+    </script>
+</body>
+</html>
